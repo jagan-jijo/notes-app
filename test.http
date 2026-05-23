@@ -1,0 +1,75 @@
+# Notes API — Manual Tests with VS Code REST Client extension or import into Postman
+
+@base_url = http://localhost:8000
+
+
+### Get all notes
+GET {{base_url}}/api/notes
+Content-Type: application/json
+
+### Create note 1
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "heading": "First Note",
+  "content": "This is the content of my first note."
+}
+
+### Create note 2
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "heading": "Second Note",
+  "content": "Another note to test the list view."
+}
+
+### Create note — missing field (expects 422)
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "content": "No heading provided — should fail."
+}
+
+
+### Update heading only
+PATCH {{base_url}}/api/notes/1
+Content-Type: application/json
+
+{
+  "heading": "Updated Heading"
+}
+
+### Update content only
+PATCH {{base_url}}/api/notes/1
+Content-Type: application/json
+
+{
+  "content": "Updated content body."
+}
+
+### Update both fields
+PATCH {{base_url}}/api/notes/1
+Content-Type: application/json
+
+{
+  "heading": "New Heading",
+  "content": "New content."
+}
+
+### Update non-existent note (expects 404)
+PATCH {{base_url}}/api/notes/999
+Content-Type: application/json
+
+{
+  "heading": "Ghost note"
+}
+
+
+### Delete note
+DELETE {{base_url}}/api/notes/1
+
+### Delete non-existent note (expects 404)
+DELETE {{base_url}}/api/notes/999
