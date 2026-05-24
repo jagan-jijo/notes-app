@@ -1,10 +1,43 @@
+# Java / Spring Boot
+target/
+build/
+out/
+HELP.md
+*.class
+*.jar
+*.war
+*.ear
+
 # Python
+.venv/
+venv/
 __pycache__/
 *.py[cod]
-.venv/
 
-# Pytest
+# Test / coverage artifacts
 .pytest_cache/
+.coverage
+coverage/
+htmlcov/
+test-results/
 
-# macOS
+# IDE files
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated
+.springBeans
+.sts4-cache
+
+# OS / misc
 .DS_Store
+*.log
+
+# random test files
+app.java
