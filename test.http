@@ -7,7 +7,7 @@
 GET {{base_url}}/api/notes
 Content-Type: application/json
 
-### Create note 1
+### Create note 1 — expects 201 with the created note including id and createdAt
 POST {{base_url}}/api/notes
 Content-Type: application/json
 
@@ -16,7 +16,7 @@ Content-Type: application/json
   "content": "This is the content of my first note."
 }
 
-### Create note 2
+### Create note 2 — expects 201; GET afterwards should return note 2 first (newest-first sort)
 POST {{base_url}}/api/notes
 Content-Type: application/json
 
@@ -25,16 +25,8 @@ Content-Type: application/json
   "content": "Another note to test the list view."
 }
 
-### Create note — missing field (expects 422)
-POST {{base_url}}/api/notes
-Content-Type: application/json
 
-{
-  "content": "No heading provided — should fail."
-}
-
-
-### Update heading only
+### Update heading only (PATCH) — expects 200; content must remain unchanged
 PATCH {{base_url}}/api/notes/1
 Content-Type: application/json
 
@@ -42,7 +34,9 @@ Content-Type: application/json
   "heading": "Updated Heading"
 }
 
-### Update content only
+###
+
+### Update content only (PATCH) — expects 200; heading must remain unchanged
 PATCH {{base_url}}/api/notes/1
 Content-Type: application/json
 
@@ -50,7 +44,9 @@ Content-Type: application/json
   "content": "Updated content body."
 }
 
-### Update both fields
+###
+
+### Update both fields (PATCH) — expects 200 with both fields changed
 PATCH {{base_url}}/api/notes/1
 Content-Type: application/json
 
@@ -59,7 +55,90 @@ Content-Type: application/json
   "content": "New content."
 }
 
-### Update non-existent note (expects 404)
+###
+
+### Delete note 2 — expects 204 No Content
+DELETE {{base_url}}/api/notes/1
+
+
+# VALIDATION — POST /api/notes
+# All of these expect 400 Bad Request with an "errors" array in the body.
+
+### Missing heading — expects 400 with errors: ["heading must not be blank"]
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "content": "No heading provided."
+}
+
+###
+
+### Missing content — expects 400 with errors: ["content must not be blank"]
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "heading": "No content provided"
+}
+
+###
+
+### Both fields missing — expects 400 with two entries in the errors array
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{}
+
+###
+
+### Blank heading (whitespace only) — expects 400; @NotBlank rejects whitespace-only strings
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "heading": "   ",
+  "content": "Heading is just spaces."
+}
+
+###
+
+### Blank content (whitespace only) — expects 400
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "heading": "Valid heading",
+  "content": "   "
+}
+
+###
+
+### Null heading explicitly — expects 400
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "heading": null,
+  "content": "Heading is null."
+}
+
+###
+
+### Empty string heading — expects 400; empty string is also rejected by @NotBlank
+POST {{base_url}}/api/notes
+Content-Type: application/json
+
+{
+  "heading": "",
+  "content": "Heading is an empty string."
+}
+
+
+# NOT FOUND — PATCH and DELETE with non-existent ids
+# All of these expect 404 Not Found.
+
+### Update non-existent note — expects 404
 PATCH {{base_url}}/api/notes/999
 Content-Type: application/json
 
@@ -67,9 +146,7 @@ Content-Type: application/json
   "heading": "Ghost note"
 }
 
+###
 
-### Delete note
-DELETE {{base_url}}/api/notes/1
-
-### Delete non-existent note (expects 404)
+### Delete non-existent note — expects 404
 DELETE {{base_url}}/api/notes/999
