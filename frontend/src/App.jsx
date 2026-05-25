@@ -32,6 +32,7 @@ export default function App() {
   const [selected, setSelected] = useState(null)  // the note the user clicked — shows Edit/Delete buttons
   const [form,     setForm]     = useState(null)  // null = form is hidden | { heading, content } = form is open
   const [errors,   setErrors]   = useState({})    // validation errors keyed by field name e.g. { heading: 'required' }
+  const [apiError, setApiError] = useState(null)  // null = ok | string = backend unreachable or request failed
 
   // ── Load ───────────────────────────────────────────────────────────────────
   // useEffect with [] runs loadNotes once when the component first mounts (page load).
@@ -39,9 +40,13 @@ export default function App() {
   useEffect(() => { loadNotes() }, [])
 
   async function loadNotes() {
-    const data = await getNotes()
-    // Sort newest-first so the most recently created note appears at the top
-    setNotes(data.sort((a, b) => new Date(b.createdDate) - new Date(a.createdDate)))
+    try {
+      const data = await getNotes()
+      setApiError(null)  // clear any previous error on success
+      setNotes(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
+    } catch {
+      setApiError('Cannot reach the backend. Make sure the Spring Boot server is running on http://localhost:8000')
+    }
   }
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -102,6 +107,13 @@ export default function App() {
           <button onClick={clickAdd} style={styles.btnPrimary}>+ Add Note</button>
         </div>
 
+        {/* Backend error banner — shown when the API cannot be reached */}
+        {apiError && (
+          <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 6, padding: '10px 14px', marginBottom: 20, fontSize: 13, color: '#856404' }}>
+            ⚠️ {apiError}
+          </div>
+        )}
+
         {/* ── Add / Edit form ──────────────────────────────────────────────
             {form && ...} means "only render this block when form is not null".
             The form title changes to 'Edit Note' vs 'New Note' based on whether
@@ -152,7 +164,7 @@ export default function App() {
                 >
                   <h3 style={{ margin: '0 0 4px', fontSize: 16, color: '#222' }}>{note.heading}</h3>
                   <p  style={{ margin: '0 0 6px', fontSize: 14, color: '#555' }}>{note.content}</p>
-                  <p  style={{ margin: 0,         fontSize: 12, color: '#999' }}>{new Date(note.createdDate).toLocaleString()}</p>
+                  <p  style={{ margin: 0,         fontSize: 12, color: '#999' }}>{new Date(note.createdAt).toLocaleString()}</p>
 
                   {/* Edit / Delete buttons — only rendered when this card is selected.
                       stopPropagation() stops the button click from also firing the
