@@ -1,0 +1,19 @@
+services:
+
+  # Spring Boot backend — runs on port 8000
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+
+  # React frontend — nginx serves static files and proxies /api to the backend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend  # wait for backend container to start before frontend

@@ -12,7 +12,20 @@ A simple full-stack notes application. Create, view, edit and delete notes from 
 
 ## How to run
 
-### Option 1 — start everything with one command
+### Option 1 — Docker (no local Java or Node required)
+
+```bash
+docker compose up --build
+```
+
+- Frontend: `http://localhost`
+- Backend: `http://localhost:8000`
+
+To stop: `docker compose down`
+
+---
+
+### Option 2 — start everything with one command
 
 ```bash
 ./start.sh
