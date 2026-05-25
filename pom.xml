@@ -1,6 +1,5 @@
-<!-- Project Object Model, defines what is this project, dependancies, how is it built -->
-
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Project Object Model, defines what is this project, dependancies, how is it built -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>

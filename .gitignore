@@ -14,6 +14,12 @@ venv/
 __pycache__/
 *.py[cod]
 
+# Frontend (React / Node)
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
 # Test / coverage artifacts
 .pytest_cache/
 .coverage
@@ -38,6 +44,8 @@ test-results/
 # OS / misc
 .DS_Store
 *.log
+npm-debug.log*
+yarn-debug.log*
 
 # random test files
 app.java

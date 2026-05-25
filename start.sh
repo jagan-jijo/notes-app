@@ -13,5 +13,22 @@ kill_port() {
 cd "$(dirname "$0")"
 
 kill_port 8000
+kill_port 5173
 
-./mvnw spring-boot:run
+# Start backend
+./mvnw spring-boot:run &
+BACKEND_PID=$!
+
+# Start frontend
+cd frontend
+npm install --silent
+npm run dev &
+FRONTEND_PID=$!
+
+echo "Backend PID: $BACKEND_PID"
+echo "Frontend PID: $FRONTEND_PID"
+echo "Backend: http://localhost:8080"
+echo "Frontend: http://localhost:5173"
+
+# Wait — Ctrl+C stops both
+wait
