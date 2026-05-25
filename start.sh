@@ -33,8 +33,9 @@ if [ ! -d "frontend/node_modules" ]; then
 fi
 
 # ── Start backend ─────────────────────────────────────────────────────────────
+# MAVEN_OPTS caps the JVM heap to avoid the OS killing the process (exit code 137).
 echo "Starting backend on http://localhost:8000 ..."
-./mvnw spring-boot:run &
+MAVEN_OPTS="-Xms64m -Xmx256m" ./mvnw spring-boot:run &
 BACKEND_PID=$!
 
 # ── Start frontend ────────────────────────────────────────────────────────────

@@ -33,6 +33,8 @@ export default function App() {
   const [form,     setForm]     = useState(null)  // null = form is hidden | { heading, content } = form is open
   const [errors,   setErrors]   = useState({})    // validation errors keyed by field name e.g. { heading: 'required' }
   const [apiError, setApiError] = useState(null)  // null = ok | string = backend unreachable or request failed
+  const [loading,  setLoading]  = useState(true)  // true while waiting for the API response
+  const [search,   setSearch]   = useState('')    // text typed in the search box — filters notes client-side
 
   // ── Load ───────────────────────────────────────────────────────────────────
   // useEffect with [] runs loadNotes once when the component first mounts (page load).
@@ -40,12 +42,15 @@ export default function App() {
   useEffect(() => { loadNotes() }, [])
 
   async function loadNotes() {
+    setLoading(true)
     try {
       const data = await getNotes()
       setApiError(null)  // clear any previous error on success
       setNotes(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
     } catch {
       setApiError('Cannot reach the backend. Make sure the Spring Boot server is running on http://localhost:8000')
+    } finally {
+      setLoading(false)  // always hide the spinner, whether success or error
     }
   }
 
@@ -82,23 +87,27 @@ export default function App() {
 
     setErrors({})  // clear any previous errors before saving
     selected ? await patchNote(selected.id, form) : await postNote(form)
-    setForm(null)      // hide the form
-    setSelected(null)  // deselect the note
-    loadNotes()        // refresh the list so the new/updated note appears
+    await loadNotes()  // await so the list is refreshed before the form closes
+    setForm(null)
+    setSelected(null)
   }
 
   // Ask the user to confirm before deleting — avoids accidental deletions.
   async function confirmDelete() {
     if (!window.confirm('Delete this note?')) return
     await deleteNote(selected.id)
-    setSelected(null)  // clear selection since the note no longer exists
-    loadNotes()
+    setSelected(null)
+    await loadNotes()
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  // JSX looks like HTML but it's actually JavaScript.
-  // Curly braces {} let us embed JS expressions inside JSX.
-  // All styles are inline objects — no separate CSS file needed.
+  // Compute filtered notes here (outside JSX) so the template stays clean.
+  // This runs on every render but is fast — it's just a JS array filter.
+  const filteredNotes = notes.filter(n =>
+    n.heading.toLowerCase().includes(search.toLowerCase()) ||
+    n.content.toLowerCase().includes(search.toLowerCase())
+  )
+
   return (
     <div style={{ background: '#f5f5f5', minHeight: '100vh', padding: '32px 16px 0', fontFamily: 'sans-serif' }}>
       <div style={{ maxWidth: 620, margin: '0 auto', background: '#fff', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', padding: 24 }}>
@@ -113,6 +122,17 @@ export default function App() {
             ⚠️ {apiError}
           </div>
         )}
+
+        {/* Search box — filters notes client-side by heading or content */}
+        <input
+          placeholder="Search notes..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setSelected(null) }}
+          style={{ ...styles.input, marginBottom: 20, borderColor: '#ccc' }}
+        />
+
+        {/* Loading spinner — shown while waiting for the API */}
+        {loading && <p style={{ color: '#aaa', textAlign: 'center', padding: 32 }}>Loading...</p>}
 
         {/* ── Add / Edit form ──────────────────────────────────────────────
             {form && ...} means "only render this block when form is not null".
@@ -147,42 +167,41 @@ export default function App() {
           </form>
         )}
 
-        {/* ── Notes list ───────────────────────────────────────────────────
-            If there are no notes show an empty-state message.
-            Otherwise map over the array — each note becomes a card.
-            Clicking a card sets it as 'selected' (or deselects if already selected).
-            The selected card is highlighted with a blue border and background.  */}
-        {notes.length === 0
-          ? <p style={{ color: '#aaa', textAlign: 'center', padding: 32 }}>No notes yet. Click <strong>+ Add Note</strong> to start.</p>
-          : notes.map(note => {
-              const isSelected = selected?.id === note.id  // is this the currently selected card?
-              return (
-                <div
-                  key={note.id}  // React needs a unique key when rendering a list
-                  onClick={() => setSelected(isSelected ? null : note)}  // toggle selection
-                  style={{ border: `1px solid ${isSelected ? '#007bff' : '#eee'}`, borderRadius: 6, padding: 14, marginBottom: 10, cursor: 'pointer', background: isSelected ? '#f0f7ff' : '#fafafa' }}
-                >
-                  <h3 style={{ margin: '0 0 4px', fontSize: 16, color: '#222' }}>{note.heading}</h3>
-                  <p  style={{ margin: '0 0 6px', fontSize: 14, color: '#555' }}>{note.content}</p>
-                  <p  style={{ margin: 0,         fontSize: 12, color: '#999' }}>{new Date(note.createdAt).toLocaleString()}</p>
+        {/* ── Notes list ─────────────────────────────────────────────────────
+            Filter notes by the search term before rendering (case-insensitive).
+            Clicking a card selects it (or deselects if already selected).
+            The selected card highlights with a blue border.                   */}
+        {!loading && filteredNotes.length === 0 && (
+          <p style={{ color: '#aaa', textAlign: 'center', padding: 32 }}>
+            {search ? `No notes matching "${search}"` : <>No notes yet. Click <strong>+ Add Note</strong> to start.</>}
+          </p>
+        )}
+        {!loading && filteredNotes.map(note => {
+          const isSelected = selected?.id === note.id
+          return (
+            <div
+              key={note.id}
+              onClick={() => setSelected(isSelected ? null : note)}
+              style={{ border: `1px solid ${isSelected ? '#007bff' : '#eee'}`, borderRadius: 6, padding: 14, marginBottom: 10, cursor: 'pointer', background: isSelected ? '#f0f7ff' : '#fafafa' }}
+            >
+              <h3 style={{ margin: '0 0 4px', fontSize: 16, color: '#222' }}>{note.heading}</h3>
+              <p  style={{ margin: '0 0 6px', fontSize: 14, color: '#555' }}>{note.content}</p>
+              <p  style={{ margin: 0,         fontSize: 12, color: '#999' }}>{new Date(note.createdAt).toLocaleString()}</p>
 
-                  {/* Edit / Delete buttons — only rendered when this card is selected.
-                      stopPropagation() stops the button click from also firing the
-                      card's onClick (which would deselect the note immediately).    */}
-                  {isSelected && (
-                    <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                      <button onClick={clickEdit}     style={styles.btnWarning}>Edit</button>
-                      <button onClick={confirmDelete} style={styles.btnDanger}>Delete</button>
-                    </div>
-                  )}
+              {/* Edit / Delete — only shown when this card is selected.
+                  stopPropagation() prevents the button click from also
+                  triggering the card's onClick and deselecting it.     */}
+              {isSelected && (
+                <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button onClick={clickEdit}     style={styles.btnWarning}>Edit</button>
+                  <button onClick={confirmDelete} style={styles.btnDanger}>Delete</button>
                 </div>
-              )
-            })
-        }
+              )}
+            </div>
+          )
+        })}
 
       </div>
-
-      {/* ── Footer — sits below the notes card, inside the grey background ── */}
       <p style={{ textAlign: 'center', fontSize: 13, color: '#aaa', padding: '16px 0 24px', margin: 0 }}>
         A notes project using a React frontend and Spring Boot backend &mdash; created by Jagan Jijo &nbsp;|&nbsp;
         <a href="https://jagan-jijo.github.io/portfolio/" target="_blank" rel="noopener" style={{ color: '#007bff', textDecoration: 'none' }}>Portfolio</a>
