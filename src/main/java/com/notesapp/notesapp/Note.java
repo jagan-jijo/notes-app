@@ -1,9 +1,12 @@
 package com.notesapp.notesapp;
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -34,6 +37,10 @@ public class Note {
     private String content;  // → column: conten
     private Instant createdAt;  // The timestamp when the note was created.
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
     /**
      * No-arg constructor required by JPA.
      * JPA needs to be able to create an empty object when it loads a row
@@ -45,9 +52,10 @@ public class Note {
      * Creates a new note with the given heading and content.
      * The id is left null here — the database assigns it on save.
      */
-    public Note(String heading, String content) {
+    public Note(String heading, String content, User user) {
         this.heading   = heading;
         this.content   = content;
+        this.user      = user;
         this.createdAt = Instant.now();
     }
 }

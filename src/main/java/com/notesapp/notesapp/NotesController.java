@@ -3,6 +3,7 @@ package com.notesapp.notesapp;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,27 +30,36 @@ public class NotesController {
     }
 
     @GetMapping
-    public List<Note> getNotes() {
-        return noteService.getAllNotes();
+    public List<NoteResponse> getNotes(@org.springframework.security.core.annotation.AuthenticationPrincipal Jwt jwt) {
+        return noteService.getAllNotes(userId(jwt));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Note createNote(@Valid @RequestBody NoteRequest request) {
+    public NoteResponse createNote(@org.springframework.security.core.annotation.AuthenticationPrincipal Jwt jwt,
+                                   @Valid @RequestBody NoteRequest request) {
         // @Valid triggers constraint checks on NoteRequest before this runs.
         // If validation fails, GlobalExceptionHandler returns a 400 instead.
-        return noteService.createNote(request);
+        return noteService.createNote(userId(jwt), request);
     }
 
     @PatchMapping("/{id}")
-    public ResponseEntity<Note> updateNote(@PathVariable int id,
+    public ResponseEntity<NoteResponse> updateNote(@PathVariable int id,
+                                           @org.springframework.security.core.annotation.AuthenticationPrincipal Jwt jwt,
                                            @RequestBody NoteUpdate request) {
-        return ResponseEntity.ok(noteService.updateNote(id, request));
+        return ResponseEntity.ok(noteService.updateNote(userId(jwt), id, request));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteNote(@PathVariable int id) {
-        noteService.deleteNote(id);
+    public ResponseEntity<Void> deleteNote(@PathVariable int id,
+                                           @org.springframework.security.core.annotation.AuthenticationPrincipal Jwt jwt) {
+        noteService.deleteNote(userId(jwt), id);
         return ResponseEntity.noContent().build();
+    }
+
+    private static long userId(Jwt jwt) {
+        String uid = jwt.getClaimAsString("uid");
+        if (uid == null) throw new IllegalStateException("Missing uid claim");
+        return Long.parseLong(uid);
     }
 }

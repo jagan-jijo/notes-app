@@ -21,3 +21,10 @@ spring:
 server:
   # Port 8000 defined specially to match test.http and python base app. 
   port: 8000
+
+app:
+  security:
+    jwt:
+      # HMAC secret for signing JWTs (must be 32+ chars for HS256).
+      # For production, set via env var / secret manager.
+      secret: "change-me-to-a-long-random-secret-at-least-32-chars"

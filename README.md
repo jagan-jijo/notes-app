@@ -41,7 +41,7 @@ Press `Ctrl+C` to stop both servers.
 
 ---
 
-### Option 2 — run backend and frontend separately
+### Option 3 — run backend and frontend separately
 
 **Backend**
 ```bash
@@ -68,14 +68,72 @@ Then open `http://localhost:5173`.
 
 ---
 
+## Authentication (JWT) + temp vs saved notes
+
+This app supports two modes:
+
+- **Signed out (guest)**: notes are **temporary** and stored only in the browser (frontend uses `localStorage`).
+- **Signed in**: notes are **saved** in the backend database and scoped to the signed-in user.
+
+### How auth works
+
+- The backend exposes auth endpoints under `/api/auth`.
+- On success, the backend returns a **JWT access token**.
+- The frontend includes that token on API requests using:
+
+	`Authorization: Bearer <token>`
+
+All notes endpoints (`/api/notes/**`) require a valid token.
+
+### JWT details (dev)
+
+- Algorithm: **HS256** (HMAC)
+- Config: `app.security.jwt.secret` in [src/main/resources/application.yaml](src/main/resources/application.yaml)
+- Token expiry: **7 days**
+- Claims:
+	- `sub` = user email
+	- `uid` = user id
+
+For production, provide the secret via environment variables / secret manager and rotate it as needed.
+
+---
+
 ## API endpoints
 
 | Method   | Endpoint            | Description   |
 |----------|---------------------|---------------|
-| GET      | `/api/notes`        | Get all notes |
-| POST     | `/api/notes`        | Create a note |
-| PATCH    | `/api/notes/{id}`   | Update a note |
-| DELETE   | `/api/notes/{id}`   | Delete a note |
+| POST     | `/api/auth/register`| Register user (returns JWT) |
+| POST     | `/api/auth/login`   | Login user (returns JWT) |
+| GET      | `/api/notes`        | Get saved notes (auth required) |
+| POST     | `/api/notes`        | Create saved note (auth required) |
+| PATCH    | `/api/notes/{id}`   | Update saved note (auth required) |
+| DELETE   | `/api/notes/{id}`   | Delete saved note (auth required) |
+
+### Example: register + use token
+
+```bash
+# Register
+curl -s -X POST http://localhost:8000/api/auth/register \
+	-H 'Content-Type: application/json' \
+	-d '{"email":"demo@example.com","password":"demo1234"}'
+
+# Response: {"token":"...","email":"demo@example.com"}
+
+# Use the token to call notes
+TOKEN="<paste token here>"
+curl -s http://localhost:8000/api/notes \
+	-H "Authorization: Bearer $TOKEN"
+```
+
+### Example: create a saved note (auth required)
+
+```bash
+TOKEN="<paste token here>"
+curl -s -X POST http://localhost:8000/api/notes \
+	-H 'Content-Type: application/json' \
+	-H "Authorization: Bearer $TOKEN" \
+	-d '{"heading":"Hello","content":"This is saved to my account"}'
+```
 
 ---
 

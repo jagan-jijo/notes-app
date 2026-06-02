@@ -2,6 +2,9 @@ package com.notesapp.notesapp;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
+import java.util.Optional;
+
 /**
  * Data access layer for Note entities.
  *
@@ -25,4 +28,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
             ↓
  *  Returns the saved Note with the generated id filled in
  */
-public interface NoteRepository extends JpaRepository<Note, Integer> {}
+public interface NoteRepository extends JpaRepository<Note, Integer> {
+    List<Note> findByUserIdOrderByCreatedAtDesc(Long userId);
+    Optional<Note> findByIdAndUserId(Integer id, Long userId);
+    boolean existsByIdAndUserId(Integer id, Long userId);
+}
+
+

@@ -1,227 +1,399 @@
-// useState  — lets us store and update values that cause the UI to re-render when changed
-// useEffect — lets us run code after the component first appears on screen (e.g. load data)
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-// ─── API — one fetch call per backend endpoint ────────────────────────────────
-// All requests go to /api/notes. Vite proxies that path to http://localhost:8000
-// so we never hard-code the backend URL here (see vite.config.js → server.proxy).
-//
-//   GET    /api/notes        → fetch all notes
-//   POST   /api/notes        → create a new note       (body: { heading, content })
-//   PATCH  /api/notes/{id}   → update an existing note (body: { heading, content })
-//   DELETE /api/notes/{id}   → delete a note
-// ─────────────────────────────────────────────────────────────────────────────
+const NOTES_API = '/api/notes'
+const AUTH_API = '/api/auth'
 
-const API = '/api/notes'
+const AUTH_KEY = 'notesapp.auth'
+const TEMP_KEY = 'notesapp.tempNotes'
 
-// fetch() is built into the browser — no extra library needed.
-// We send JSON for POST/PATCH so the Content-Type header tells Spring Boot how to parse the body.
-const getNotes   = ()         => fetch(API).then(r => r.json())
-const postNote   = (data)     => fetch(API,            { method: 'POST',  headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-const patchNote  = (id, data) => fetch(`${API}/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-const deleteNote = (id)       => fetch(`${API}/${id}`, { method: 'DELETE' })
+function readJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : fallback
+  } catch {
+    return fallback
+  }
+}
 
-// ─── App ──────────────────────────────────────────────────────────────────────
-// This is the single React component that contains all state and UI.
-// React will re-render the UI automatically whenever any state value changes.
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value))
+}
+
+function formatDate(iso) {
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return ''
+  }
+}
+
+async function apiFetch(path, { token, method, body } = {}) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(path, {
+    method: method || 'GET',
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+
+  if (res.status === 204) return null
+
+  const text = await res.text()
+  const data = text ? safeJsonParse(text) : null
+
+  if (!res.ok) {
+    const message = data?.message || data?.error || (typeof data === 'string' ? data : null) || `Request failed (${res.status})`
+    const err = new Error(message)
+    err.status = res.status
+    throw err
+  }
+
+  return data
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+function tempId() {
+  return `t_${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
 export default function App() {
+  const [auth, setAuth] = useState(() => readJson(AUTH_KEY, null))
+  const [showAuth, setShowAuth] = useState(false)
+  const [authMode, setAuthMode] = useState('login')
+  const [authForm, setAuthForm] = useState({ email: '', password: '' })
+  const [authError, setAuthError] = useState(null)
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  // useState([]) starts notes as an empty array; setNotes() replaces it and triggers a re-render.
-  const [notes,    setNotes]    = useState([])    // all notes fetched from the API
-  const [selected, setSelected] = useState(null)  // the note the user clicked — shows Edit/Delete buttons
-  const [form,     setForm]     = useState(null)  // null = form is hidden | { heading, content } = form is open
-  const [errors,   setErrors]   = useState({})    // validation errors keyed by field name e.g. { heading: 'required' }
-  const [apiError, setApiError] = useState(null)  // null = ok | string = backend unreachable or request failed
-  const [loading,  setLoading]  = useState(true)  // true while waiting for the API response
-  const [search,   setSearch]   = useState('')    // text typed in the search box — filters notes client-side
+  const [notes, setNotes] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [banner, setBanner] = useState(null)
 
-  // ── Load ───────────────────────────────────────────────────────────────────
-  // useEffect with [] runs loadNotes once when the component first mounts (page load).
-  // Without [], it would run on every re-render which would cause an infinite loop.
-  useEffect(() => { loadNotes() }, [])
+  const [editor, setEditor] = useState({ heading: '', content: '' })
+  const [editorError, setEditorError] = useState(null)
+
+  const isSignedIn = !!auth?.token
+
+  useEffect(() => {
+    loadNotes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn])
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      const temp = readJson(TEMP_KEY, [])
+      setNotes(Array.isArray(temp) ? temp : [])
+      setLoading(false)
+    }
+  }, [isSignedIn])
+
+  const selected = useMemo(() => notes.find(n => String(n.id) === String(selectedId)) || null, [notes, selectedId])
+
+  useEffect(() => {
+    if (selected) setEditor({ heading: selected.heading ?? '', content: selected.content ?? '' })
+    else setEditor({ heading: '', content: '' })
+  }, [selected])
+
+  const filteredNotes = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return notes
+    return notes.filter(n =>
+      (n.heading || '').toLowerCase().includes(q) ||
+      (n.content || '').toLowerCase().includes(q)
+    )
+  }, [notes, search])
+
+  const scopeLabel = isSignedIn ? 'Saved notes' : 'Temp notes'
 
   async function loadNotes() {
+    setBanner(null)
     setLoading(true)
+
+    if (!isSignedIn) {
+      const temp = readJson(TEMP_KEY, [])
+      setNotes(Array.isArray(temp) ? temp : [])
+      setLoading(false)
+      return
+    }
+
     try {
-      const data = await getNotes()
-      setApiError(null)  // clear any previous error on success
-      setNotes(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
-    } catch {
-      setApiError('Cannot reach the backend. Make sure the Spring Boot server is running on http://localhost:8000')
+      const data = await apiFetch(NOTES_API, { token: auth.token })
+      setNotes(Array.isArray(data) ? data : [])
+    } catch (e) {
+      if (e.status === 401) {
+        signOut()
+        setBanner('Session expired. You are now viewing temp notes.')
+      } else {
+        setBanner('Cannot reach the backend. Start Spring Boot on http://localhost:8000')
+      }
     } finally {
-      setLoading(false)  // always hide the spinner, whether success or error
+      setLoading(false)
     }
   }
 
-  // ── Actions ────────────────────────────────────────────────────────────────
-
-  // Open a blank form for a new note.
-  // We also clear selected so saveForm knows this is a create, not an update.
-  function clickAdd() {
-    setSelected(null)
-    setForm({ heading: '', content: '' })
-    setErrors({})
+  function persistTemp(next) {
+    writeJson(TEMP_KEY, next)
   }
 
-  // Open the form pre-filled with the selected note's current values for editing.
-  function clickEdit() {
-    setForm({ heading: selected.heading, content: selected.content })
-    setErrors({})
+  function startNewNote() {
+    setSelectedId(null)
+    setEditor({ heading: '', content: '' })
+    setEditorError(null)
   }
 
-  // Called when the form is submitted (Save button).
-  // We validate first so we never send an empty note to the backend.
-  // If selected is set → PATCH (update), otherwise → POST (create).
-  async function saveForm(e) {
-    e.preventDefault()  // stop the browser from reloading the page on form submit
-
-    // Client-side validation — check both fields have content
-    const errs = {}
-    if (!form.heading.trim()) errs.heading = 'Heading is required'
-    if (!form.content.trim()) errs.content = 'Content is required'
-    if (Object.keys(errs).length) {
-      setErrors(errs)  // show error messages and highlight the fields
-      return           // stop here — don't call the API
+  async function saveNote() {
+    const heading = editor.heading.trim()
+    const content = editor.content.trim()
+    const errs = []
+    if (!heading) errs.push('Heading is required')
+    if (!content) errs.push('Content is required')
+    if (errs.length) {
+      setEditorError(errs.join(' · '))
+      return
     }
 
-    setErrors({})  // clear any previous errors before saving
-    selected ? await patchNote(selected.id, form) : await postNote(form)
-    await loadNotes()  // await so the list is refreshed before the form closes
-    setForm(null)
-    setSelected(null)
+    setEditorError(null)
+
+    if (!isSignedIn) {
+      const nowIso = new Date().toISOString()
+
+      if (selected) {
+        const next = notes.map(n => String(n.id) === String(selected.id) ? { ...n, heading, content } : n)
+        setNotes(next)
+        persistTemp(next)
+        return
+      }
+
+      const created = { id: tempId(), heading, content, createdAt: nowIso }
+      const next = [created, ...notes]
+      setNotes(next)
+      persistTemp(next)
+      setSelectedId(created.id)
+      return
+    }
+
+    try {
+      if (selected) {
+        await apiFetch(`${NOTES_API}/${selected.id}`, { token: auth.token, method: 'PATCH', body: { heading, content } })
+      } else {
+        await apiFetch(NOTES_API, { token: auth.token, method: 'POST', body: { heading, content } })
+      }
+      await loadNotes()
+      startNewNote()
+    } catch (e) {
+      setBanner(e.message)
+    }
   }
 
-  // Ask the user to confirm before deleting — avoids accidental deletions.
-  async function confirmDelete() {
+  async function deleteSelected() {
+    if (!selected) return
     if (!window.confirm('Delete this note?')) return
-    await deleteNote(selected.id)
-    setSelected(null)
-    await loadNotes()
+
+    if (!isSignedIn) {
+      const next = notes.filter(n => String(n.id) !== String(selected.id))
+      setNotes(next)
+      persistTemp(next)
+      startNewNote()
+      return
+    }
+
+    try {
+      await apiFetch(`${NOTES_API}/${selected.id}`, { token: auth.token, method: 'DELETE' })
+      await loadNotes()
+      startNewNote()
+    } catch (e) {
+      setBanner(e.message)
+    }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  // Compute filtered notes here (outside JSX) so the template stays clean.
-  // This runs on every render but is fast — it's just a JS array filter.
-  const filteredNotes = notes.filter(n =>
-    n.heading.toLowerCase().includes(search.toLowerCase()) ||
-    n.content.toLowerCase().includes(search.toLowerCase())
-  )
+  async function submitAuth() {
+    setAuthError(null)
+    const email = authForm.email.trim()
+    const password = authForm.password
+    if (!email || !password) {
+      setAuthError('Email and password are required')
+      return
+    }
+
+    try {
+      const path = authMode === 'register' ? `${AUTH_API}/register` : `${AUTH_API}/login`
+      const data = await apiFetch(path, { method: 'POST', body: { email, password } })
+      const next = { token: data.token, email: data.email }
+      setAuth(next)
+      writeJson(AUTH_KEY, next)
+      setShowAuth(false)
+      setAuthForm({ email: '', password: '' })
+      setBanner(null)
+    } catch (e) {
+      setAuthError(e.message)
+    }
+  }
+
+  function signOut() {
+    setAuth(null)
+    localStorage.removeItem(AUTH_KEY)
+    setSelectedId(null)
+    setShowAuth(false)
+  }
+
+  function toggleTheme() {
+    const nextIsDark = !document.documentElement.classList.contains('dark')
+    document.documentElement.classList.toggle('dark', nextIsDark)
+    localStorage.setItem('notesapp.theme', nextIsDark ? 'dark' : 'light')
+  }
 
   return (
-    <div style={{ background: '#f5f5f5', minHeight: '100vh', padding: '32px 16px 0', fontFamily: 'sans-serif' }}>
-      <div style={{ maxWidth: 620, margin: '0 auto', background: '#fff', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h1 style={{ margin: 0, fontSize: 22, color: '#333' }}>My Notes</h1>
-          <button onClick={clickAdd} style={styles.btnPrimary}>+ Add Note</button>
+    <div className="container">
+      <div className="appShell">
+        <div className="header">
+          <div className="brand">
+            <h1>Notes</h1>
+            <span className="pill">{scopeLabel} · {notes.length}</span>
+          </div>
+
+          <div className="toolbar">
+            <button className="btn btnGhost" onClick={toggleTheme} type="button">
+              Toggle theme
+            </button>
+
+            {isSignedIn ? (
+              <>
+                <span className="pill">{auth.email}</span>
+                <button className="btn" onClick={signOut} type="button">Sign out</button>
+              </>
+            ) : (
+              <button className="btn btnPrimary" onClick={() => setShowAuth(v => !v)} type="button">
+                Sign in
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Backend error banner — shown when the API cannot be reached */}
-        {apiError && (
-          <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 6, padding: '10px 14px', marginBottom: 20, fontSize: 13, color: '#856404' }}>
-            ⚠️ {apiError}
+        {showAuth && !isSignedIn && (
+          <div className="card panel">
+            <div className="stack" style={{ gridTemplateColumns: '1fr', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>Sign in to save notes</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 2 }}>
+                    Signed out mode keeps notes locally in this browser.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className={`btn ${authMode === 'login' ? 'btnPrimary' : ''}`} type="button" onClick={() => setAuthMode('login')}>Sign in</button>
+                  <button className={`btn ${authMode === 'register' ? 'btnPrimary' : ''}`} type="button" onClick={() => setAuthMode('register')}>Create account</button>
+                </div>
+              </div>
+
+              {authError && <div className="banner">{authError}</div>}
+
+              <div className="mainGrid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'end' }}>
+                <div className="stack">
+                  <div className="label">Email</div>
+                  <input className="input" value={authForm.email} onChange={e => setAuthForm({ ...authForm, email: e.target.value })} placeholder="you@example.com" />
+                </div>
+                <div className="stack">
+                  <div className="label">Password</div>
+                  <input className="input" type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} placeholder="••••••••" />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn" type="button" onClick={() => setShowAuth(false)}>Cancel</button>
+                <button className="btn btnPrimary" type="button" onClick={submitAuth}>
+                  {authMode === 'register' ? 'Create account' : 'Sign in'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Search box — filters notes client-side by heading or content */}
-        <input
-          placeholder="Search notes..."
-          value={search}
-          onChange={e => { setSearch(e.target.value); setSelected(null) }}
-          style={{ ...styles.input, marginBottom: 20, borderColor: '#ccc' }}
-        />
+        {banner && <div className="banner">{banner}</div>}
 
-        {/* Loading spinner — shown while waiting for the API */}
-        {loading && <p style={{ color: '#aaa', textAlign: 'center', padding: 32 }}>Loading...</p>}
+        <div className="mainGrid">
+          <div className="card panel">
+            <div className="stack">
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontWeight: 700 }}>Your notes</div>
+                <button className="btn btnPrimary" type="button" onClick={startNewNote}>+ New</button>
+              </div>
 
-        {/* ── Add / Edit form ──────────────────────────────────────────────
-            {form && ...} means "only render this block when form is not null".
-            The form title changes to 'Edit Note' vs 'New Note' based on whether
-            a note is currently selected.                                      */}
-        {form && (
-          <form onSubmit={saveForm} style={{ background: '#f9f9f9', border: '1px solid #ddd', borderRadius: 6, padding: 16, marginBottom: 20 }}>
-            <p style={{ margin: '0 0 12px', fontWeight: 600, color: '#333' }}>{selected ? 'Edit Note' : 'New Note'}</p>
+              <input className="input" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} />
 
-            {/* Heading input — border turns red if validation fails */}
-            <input
-              placeholder="Heading" value={form.heading}
-              onChange={e => setForm({ ...form, heading: e.target.value })}
-              style={{ ...styles.input, borderColor: errors.heading ? '#dc3545' : '#ccc' }}
-            />
-            {/* Show error message below the field if it failed validation */}
-            {errors.heading && <p style={styles.errMsg}>{errors.heading}</p>}
-
-            {/* Content textarea — same red-border pattern as heading */}
-            <textarea
-              placeholder="Content" value={form.content}
-              onChange={e => setForm({ ...form, content: e.target.value })}
-              style={{ ...styles.input, minHeight: 80, resize: 'vertical', borderColor: errors.content ? '#dc3545' : '#ccc' }}
-            />
-            {errors.content && <p style={styles.errMsg}>{errors.content}</p>}
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="submit"                                                   style={styles.btnSuccess}>Save</button>
-              {/* Cancel clears both the form and any validation errors */}
-              <button type="button" onClick={() => { setForm(null); setErrors({}) }} style={styles.btnMuted}>Cancel</button>
-            </div>
-          </form>
-        )}
-
-        {/* ── Notes list ─────────────────────────────────────────────────────
-            Filter notes by the search term before rendering (case-insensitive).
-            Clicking a card selects it (or deselects if already selected).
-            The selected card highlights with a blue border.                   */}
-        {!loading && filteredNotes.length === 0 && (
-          <p style={{ color: '#aaa', textAlign: 'center', padding: 32 }}>
-            {search ? `No notes matching "${search}"` : <>No notes yet. Click <strong>+ Add Note</strong> to start.</>}
-          </p>
-        )}
-        {!loading && filteredNotes.map(note => {
-          const isSelected = selected?.id === note.id
-          return (
-            <div
-              key={note.id}
-              onClick={() => setSelected(isSelected ? null : note)}
-              style={{ border: `1px solid ${isSelected ? '#007bff' : '#eee'}`, borderRadius: 6, padding: 14, marginBottom: 10, cursor: 'pointer', background: isSelected ? '#f0f7ff' : '#fafafa' }}
-            >
-              <h3 style={{ margin: '0 0 4px', fontSize: 16, color: '#222' }}>{note.heading}</h3>
-              <p  style={{ margin: '0 0 6px', fontSize: 14, color: '#555' }}>{note.content}</p>
-              <p  style={{ margin: 0,         fontSize: 12, color: '#999' }}>{new Date(note.createdAt).toLocaleString()}</p>
-
-              {/* Edit / Delete — only shown when this card is selected.
-                  stopPropagation() prevents the button click from also
-                  triggering the card's onClick and deselecting it.     */}
-              {isSelected && (
-                <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button onClick={clickEdit}     style={styles.btnWarning}>Edit</button>
-                  <button onClick={confirmDelete} style={styles.btnDanger}>Delete</button>
+              {loading ? (
+                <div className="pill" style={{ justifyContent: 'center' }}>Loading…</div>
+              ) : filteredNotes.length === 0 ? (
+                <div className="pill" style={{ justifyContent: 'center' }}>{search ? 'No matches' : 'No notes yet'}</div>
+              ) : (
+                <div className="noteList">
+                  {filteredNotes.map(n => {
+                    const isSel = String(n.id) === String(selectedId)
+                    return (
+                      <div
+                        key={n.id}
+                        className={`noteItem ${isSel ? 'noteItemSelected' : ''}`}
+                        onClick={() => setSelectedId(isSel ? null : n.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter') setSelectedId(isSel ? null : n.id) }}
+                      >
+                        <p className="noteTitle">{n.heading || 'Untitled'}</p>
+                        <p className="noteBody">{(n.content || '').slice(0, 120)}{(n.content || '').length > 120 ? '…' : ''}</p>
+                        <p className="noteMeta">{formatDate(n.createdAt)}</p>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
-          )
-        })}
+          </div>
 
+          <div className="card panel">
+            <div className="stack">
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontWeight: 700 }}>{selected ? 'Edit note' : 'Write a note'}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" type="button" onClick={loadNotes}>Refresh</button>
+                  <button className="btn btnDanger" type="button" onClick={deleteSelected} disabled={!selected} style={!selected ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              {editorError && <div className="banner">{editorError}</div>}
+
+              <div className="stack">
+                <div className="label">Heading</div>
+                <input className="input" value={editor.heading} onChange={e => setEditor({ ...editor, heading: e.target.value })} placeholder="A clear heading…" />
+              </div>
+
+              <div className="stack">
+                <div className="label">Content</div>
+                <textarea className="textarea" value={editor.content} onChange={e => setEditor({ ...editor, content: e.target.value })} placeholder="Write something you can find later…" />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn" type="button" onClick={startNewNote}>Clear</button>
+                <button className="btn btnPrimary" type="button" onClick={saveNote}>
+                  {selected ? 'Save changes' : (isSignedIn ? 'Save note' : 'Save temp note')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="footer">
+          Created by Jagan Jijo · <a href="https://jagan-jijo.github.io/portfolio/" target="_blank" rel="noopener">Portfolio</a> · <a href="https://www.linkedin.com/in/jagan-jijo/" target="_blank" rel="noopener">LinkedIn</a>
+        </div>
       </div>
-      <p style={{ textAlign: 'center', fontSize: 13, color: '#aaa', padding: '16px 0 24px', margin: 0 }}>
-        A notes project using a React frontend and Spring Boot backend &mdash; created by Jagan Jijo &nbsp;|&nbsp;
-        <a href="https://jagan-jijo.github.io/portfolio/" target="_blank" rel="noopener" style={{ color: '#007bff', textDecoration: 'none' }}>Portfolio</a>
-        &nbsp;&middot;&nbsp;
-        <a href="https://www.linkedin.com/in/jagan-jijo/" target="_blank" rel="noopener" style={{ color: '#007bff', textDecoration: 'none' }}>LinkedIn</a>
-      </p>
     </div>
   )
-}
-
-// ─── Button styles ────────────────────────────────────────────────────────────
-// Defined outside the component so they are not recreated on every render.
-// Each button variant spreads the shared 'base' style and adds its own colour.
-const base = { border: 'none', borderRadius: 4, padding: '7px 14px', fontSize: 13, cursor: 'pointer', color: '#fff' }
-const styles = {
-  btnPrimary: { ...base, background: '#007bff' },  // Add Note
-  btnSuccess: { ...base, background: '#28a745' },  // Save
-  btnWarning: { ...base, background: '#f0ad4e' },  // Edit
-  btnDanger:  { ...base, background: '#dc3545' },  // Delete
-  btnMuted:   { ...base, background: '#888' },     // Cancel
-  input:      { display: 'block', width: '100%', padding: '8px 10px', marginBottom: 4,  border: '1px solid #ccc', borderRadius: 4, fontSize: 14, boxSizing: 'border-box' },
-  errMsg:     { margin: '0 0 10px', fontSize: 12, color: '#dc3545' },  // red text under invalid field
 }
