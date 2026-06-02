@@ -10,6 +10,11 @@ A simple full-stack notes application. Create, view, edit and delete notes from 
 
 ---
 
+<img width="1164" height="731" alt="Screenshot 2026-06-02 at 10 06 34 PM" src="https://github.com/user-attachments/assets/60f445fe-c2f3-4596-a997-66f6cefe148a" />
+<img width="1184" height="742" alt="Screenshot 2026-06-02 at 10 06 56 PM" src="https://github.com/user-attachments/assets/915235e7-a416-4f1c-bd56-7bb217428179" />
+
+---
+
 ## How to run
 
 ### Option 1 — Docker (no local Java or Node required)
